@@ -80,6 +80,9 @@ class SchedulerConfig:
     """If True, prefill requests can be chunked based
     on the remaining max_num_batched_tokens."""
 
+    prefill_mode: bool = False
+    """When True, scheduler is serving prefill-only requests."""
+
     is_multimodal_model: bool = False
     """True if the model is multimodal."""
 
@@ -214,6 +217,13 @@ class SchedulerConfig:
             logger.info(
                 "Encoder-decoder models do not support chunked prefill nor"
                 " prefix caching; disabling both."
+            )
+
+        if self.prefill_mode:
+            self.chunked_prefill_enabled = False
+            self.enable_chunked_prefill = False
+            logger.info(
+                "Scheduler running in prefill-only mode; chunked prefill is disabled."
             )
 
         if self.max_num_batched_tokens is None:

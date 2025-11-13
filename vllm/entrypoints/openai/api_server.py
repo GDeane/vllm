@@ -1657,6 +1657,15 @@ async def init_app_state(
     state.engine_client = engine_client
     state.log_stats = not args.disable_log_stats
     state.vllm_config = vllm_config
+    state.prefill_mode = bool(
+        getattr(vllm_config, "prefill_mode", False)
+        or getattr(args, "prefill_mode", False)
+    )
+    if state.prefill_mode:
+        logger.info(
+            "Prefill mode is active. The server will force `max_tokens=1` "
+            "for generation endpoints."
+        )
 
     supported_tasks = await engine_client.get_supported_tasks()
     logger.info("Supported tasks: %s", supported_tasks)
@@ -1779,6 +1788,21 @@ async def init_app_state(
         if "embed" in supported_tasks
         else None
     )
+
+    def _apply_prefill_flag(*servings):
+        if not state.prefill_mode:
+            return
+        for serving in servings:
+            if serving is not None and hasattr(serving, "prefill_mode"):
+                serving.prefill_mode = True
+
+    _apply_prefill_flag(
+        state.openai_serving_responses,
+        state.openai_serving_chat,
+        state.openai_serving_completion,
+        state.openai_serving_pooling,
+        state.openai_serving_embedding,
+    )
     state.openai_serving_classification = (
         ServingClassification(
             engine_client,
@@ -1847,6 +1871,15 @@ async def init_app_state(
         )
         if "generate" in supported_tasks
         else None
+    )
+
+    _apply_prefill_flag(
+        state.openai_serving_classification,
+        state.openai_serving_scores,
+        state.openai_serving_tokenization,
+        state.openai_serving_transcription,
+        state.openai_serving_translation,
+        state.anthropic_serving_messages,
     )
 
     state.enable_server_load_tracking = args.enable_server_load_tracking

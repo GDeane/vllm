@@ -286,6 +286,10 @@ class OpenAIServingResponses(OpenAIServing):
         if error_check_ret is not None:
             logger.error("Error with model %s", error_check_ret)
             return error_check_ret
+
+        if error := self._ensure_prefill_request_tokens(request):
+            return error
+
         maybe_validation_error = self._validate_create_responses_input(request)
         if maybe_validation_error is not None:
             return maybe_validation_error

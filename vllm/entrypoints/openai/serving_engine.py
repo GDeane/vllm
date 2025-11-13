@@ -278,6 +278,8 @@ class OpenAIServing:
         self.io_processor = self.models.io_processor
         self.model_config = self.models.model_config
         self.max_model_len = self.model_config.max_model_len
+        vllm_config = getattr(self.engine_client, "vllm_config", None)
+        self.prefill_mode = bool(getattr(vllm_config, "prefill_mode", False))
 
     def _get_tool_parser(
         self, tool_parser_name: str | None = None, enable_auto_tools: bool = False
@@ -594,7 +596,43 @@ class OpenAIServing:
 
         yield self._build_response(ctx)
 
+    def _ensure_prefill_request_tokens(self, request: Any) -> ErrorResponse | None:
+        if not self.prefill_mode:
+            return None
+
+        token_fields = [
+            "max_completion_tokens",
+            "max_tokens",
+            "max_output_tokens",
+        ]
+        requested_value = None
+        requested_attr = None
+        for field in token_fields:
+            if hasattr(request, field):
+                value = getattr(request, field)
+                if value is not None:
+                    requested_value = value
+                    requested_attr = field
+                    break
+
+        if requested_value is None:
+            # Force downstream defaults to 1 so the engine behaves predictably.
+            for field in token_fields:
+                if hasattr(request, field):
+                    setattr(request, field, 1)
+            return None
+
+        if requested_value != 1:
+            return self.create_error_response(
+                "vLLM prefill mode only supports `max_tokens=1`. "
+                f"Received {requested_value} via `{requested_attr}`."
+            )
+        return None
+
     def _validate_request(self, ctx: ServeContext) -> ErrorResponse | None:
+        if error := self._ensure_prefill_request_tokens(ctx.request):
+            return error
+
         truncate_prompt_tokens = getattr(ctx.request, "truncate_prompt_tokens", None)
 
         if (

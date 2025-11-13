@@ -427,6 +427,9 @@ class EngineArgs:
     cpu_offload_gb: float = CacheConfig.cpu_offload_gb
     gpu_memory_utilization: float = CacheConfig.gpu_memory_utilization
     kv_cache_memory_bytes: int | None = CacheConfig.kv_cache_memory_bytes
+    prefill_mode: bool = False
+    """If True, run in prefill-only mode (single chunk requests)."""
+
     max_num_batched_tokens: int | None = SchedulerConfig.max_num_batched_tokens
     max_num_partial_prefills: int = SchedulerConfig.max_num_partial_prefills
     max_long_partial_prefills: int = SchedulerConfig.max_long_partial_prefills
@@ -1556,6 +1559,7 @@ class EngineArgs:
             long_prefill_token_threshold=self.long_prefill_token_threshold,
             disable_hybrid_kv_cache_manager=self.disable_hybrid_kv_cache_manager,
             async_scheduling=self.async_scheduling,
+            prefill_mode=self.prefill_mode,
         )
 
         if not model_config.is_multimodal_model and self.default_mm_loras:
@@ -1677,6 +1681,7 @@ class EngineArgs:
             kv_transfer_config=self.kv_transfer_config,
             kv_events_config=self.kv_events_config,
             additional_config=self.additional_config,
+            prefill_mode=self.prefill_mode,
         )
 
         return config
@@ -1764,6 +1769,14 @@ class EngineArgs:
             if self.enable_prefix_caching is None:
                 self.enable_prefix_caching = incremental_prefill_supported
                 logger.info("(%s) prefix caching by default", action)
+
+        if self.prefill_mode:
+            if self.enable_chunked_prefill:
+                logger.info(
+                    "Prefill mode detected: disabling chunked prefill so each "
+                    "request runs as a single chunk."
+                )
+            self.enable_chunked_prefill = False
 
         # When no user override, set the default values based on the usage
         # context.

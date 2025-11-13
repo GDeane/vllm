@@ -110,6 +110,8 @@ class VllmConfig:
     """Additional config for specified platform. Different platforms may
     support different configs. Make sure the configs are valid for the platform
     you are using. Contents must be hashable."""
+    prefill_mode: bool = False
+    """Whether the current instance runs in prefill-only mode."""
     instance_id: str = ""
     """The ID of the vLLM instance."""
 
@@ -194,6 +196,7 @@ class VllmConfig:
             vllm_factors.append(additional_config_hash)
         else:
             vllm_factors.append("None")
+        vllm_factors.append(self.prefill_mode)
         factors.append(vllm_factors)
 
         hash_str = hashlib.md5(
