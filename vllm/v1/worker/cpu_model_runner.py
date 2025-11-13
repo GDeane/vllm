@@ -9,6 +9,7 @@ import torch.nn as nn
 from vllm.config import VllmConfig
 from vllm.logger import init_logger
 from vllm.model_executor.model_loader import get_model
+from vllm.prefill.ffn_chunk import enable_prefill_ffn_chunking
 from vllm.v1.utils import CpuGpuBuffer
 from vllm.v1.worker.gpu_model_runner import GPUModelRunner
 
@@ -69,6 +70,9 @@ class CPUModelRunner(GPUModelRunner):
 
         if self.lora_config:
             self.model = self.load_lora_model(self.model, self.vllm_config, self.device)
+
+        if getattr(self.vllm_config, "prefill_mode", False):
+            enable_prefill_ffn_chunking(self.get_model())
 
     def get_model(self) -> nn.Module:
         return self.model
