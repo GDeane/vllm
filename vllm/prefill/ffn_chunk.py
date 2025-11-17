@@ -107,8 +107,11 @@ class _TensorArg:
 def _find_tensor_argument(
     args: Sequence[Any], kwargs: dict[str, Any]
 ) -> _TensorArg | None:
-    # Skip self (index 0) for methods.
-    for idx in range(1, len(args)):
+    start_idx = 0
+    if args and isinstance(args[0], nn.Module):
+        start_idx = 1
+
+    for idx in range(start_idx, len(args)):
         val = args[idx]
         if torch.is_tensor(val):
             return _TensorArg("arg", idx, None, val)
