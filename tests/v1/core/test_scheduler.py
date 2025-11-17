@@ -20,6 +20,8 @@ from vllm.multimodal.inputs import (
     PlaceholderRange,
 )
 from vllm.sampling_params import SamplingParams, StructuredOutputsParams
+from vllm.utils.hashing import sha256
+from vllm.v1.core.kv_cache_utils import get_request_block_hasher, init_none_hash
 from vllm.v1.core.sched.output import CachedRequestData, SchedulerOutput
 from vllm.v1.core.sched.scheduler import Scheduler
 from vllm.v1.kv_cache_interface import (
@@ -67,6 +69,191 @@ def test_get_num_unfinished_requests():
     for i, request in enumerate(requests):
         scheduler.finish_requests(request.request_id, RequestStatus.FINISHED_STOPPED)
         assert scheduler.get_num_unfinished_requests() == len(requests) - i - 1
+
+
+def test_prefill_scheduler_shortest_job_first():
+    scheduler = create_scheduler(
+        max_num_seqs=1,
+        max_num_batched_tokens=2048,
+        prefill_mode=True,
+        skip_tokenizer_init=True,
+    )
+    long_request = create_requests(num_requests=1, num_tokens=32)[0]
+    long_request.request_id = "long"
+    short_request = create_requests(num_requests=1, num_tokens=8)[0]
+    short_request.request_id = "short"
+    short_request.arrival_time = long_request.arrival_time + 1
+
+    scheduler.add_request(long_request)
+    scheduler.add_request(short_request)
+
+    output = scheduler.schedule()
+    assert len(output.scheduled_new_reqs) == 1
+    assert output.scheduled_new_reqs[0].req_id == "short"
+
+
+def test_prefill_scheduler_prefers_cached_work():
+    scheduler = create_scheduler(
+        max_num_seqs=1,
+        max_num_batched_tokens=2048,
+        prefill_mode=True,
+        skip_tokenizer_init=True,
+        enable_prefix_caching=True,
+    )
+    init_none_hash(sha256)
+    block_hasher = get_request_block_hasher(scheduler.block_size, sha256)
+
+    def make_request(req_id: str, tokens: list[int]) -> Request:
+        return Request(
+            request_id=req_id,
+            prompt_token_ids=tokens.copy(),
+            sampling_params=SamplingParams(max_tokens=1),
+            pooling_params=None,
+            eos_token_id=EOS_TOKEN_ID,
+            block_hasher=block_hasher,
+        )
+
+    prefix_tokens = list(range(48))
+    base_request = make_request("base", prefix_tokens + [777] * 16)
+    scheduler.add_request(base_request)
+    base_output = scheduler.schedule()
+    assert len(base_output.scheduled_new_reqs) == 1
+    assert base_output.scheduled_new_reqs[0].req_id == "base"
+    base_runner_output = ModelRunnerOutput(
+        req_ids=[base_request.request_id],
+        req_id_to_index={base_request.request_id: 0},
+        sampled_token_ids=[[]],
+        logprobs=None,
+        prompt_logprobs_dict={},
+        pooler_output=[],
+    )
+    scheduler.update_from_output(base_output, base_runner_output)
+    scheduler.finish_requests(base_request.request_id, RequestStatus.FINISHED_STOPPED)
+
+    cached_request = make_request("cached", prefix_tokens + [888] * 16)
+    cold_request = make_request("cold", [111] * 32)
+    cold_request.arrival_time = base_request.arrival_time
+    cached_request.arrival_time = cold_request.arrival_time + 1
+
+    scheduler.add_request(cold_request)
+    scheduler.add_request(cached_request)
+
+    assert cached_request.prefill_cached_tokens == 48
+    assert (
+        cached_request.prefill_estimated_work
+        == len(cached_request.prompt_token_ids) - 48
+    )
+    assert cold_request.prefill_estimated_work == len(cold_request.prompt_token_ids)
+
+    output = scheduler.schedule()
+    assert len(output.scheduled_new_reqs) == 1
+    assert output.scheduled_new_reqs[0].req_id == "cached"
+
+
+def test_prefill_scheduler_refreshes_work_when_cache_evicted():
+    scheduler = create_scheduler(
+        max_num_seqs=1,
+        max_num_batched_tokens=2048,
+        prefill_mode=True,
+        skip_tokenizer_init=True,
+        enable_prefix_caching=True,
+    )
+    init_none_hash(sha256)
+    block_hasher = get_request_block_hasher(scheduler.block_size, sha256)
+
+    def make_request(req_id: str, tokens: list[int]) -> Request:
+        return Request(
+            request_id=req_id,
+            prompt_token_ids=tokens.copy(),
+            sampling_params=SamplingParams(max_tokens=1),
+            pooling_params=None,
+            eos_token_id=EOS_TOKEN_ID,
+            block_hasher=block_hasher,
+        )
+
+    prefix_tokens = list(range(48))
+    base_request = make_request("base", prefix_tokens + [777] * 16)
+    scheduler.add_request(base_request)
+    base_output = scheduler.schedule()
+    assert base_output.scheduled_new_reqs[0].req_id == "base"
+    scheduler.update_from_output(
+        base_output,
+        ModelRunnerOutput(
+            req_ids=[base_request.request_id],
+            req_id_to_index={base_request.request_id: 0},
+            sampled_token_ids=[[]],
+            logprobs=None,
+            prompt_logprobs_dict={},
+            pooler_output=[],
+        ),
+    )
+    scheduler.finish_requests(base_request.request_id, RequestStatus.FINISHED_STOPPED)
+
+    cached_request = make_request("cached", prefix_tokens + [888] * 16)
+    cold_request = make_request("cold", [111] * 32)
+    scheduler.add_request(cold_request)
+    scheduler.add_request(cached_request)
+
+    assert cached_request.prefill_cached_tokens == 48
+
+    scheduler.kv_cache_manager.reset_prefix_cache()
+
+    output = scheduler.schedule()
+    assert len(output.scheduled_new_reqs) == 1
+    assert output.scheduled_new_reqs[0].req_id == "cold"
+    assert cached_request.prefill_cached_tokens == 0
+
+
+def test_prefill_scheduler_refreshes_work_when_cache_added():
+    scheduler = create_scheduler(
+        max_num_seqs=1,
+        max_num_batched_tokens=2048,
+        prefill_mode=True,
+        skip_tokenizer_init=True,
+        enable_prefix_caching=True,
+    )
+    init_none_hash(sha256)
+    block_hasher = get_request_block_hasher(scheduler.block_size, sha256)
+
+    def make_request(req_id: str, tokens: list[int]) -> Request:
+        return Request(
+            request_id=req_id,
+            prompt_token_ids=tokens.copy(),
+            sampling_params=SamplingParams(max_tokens=1),
+            pooling_params=None,
+            eos_token_id=EOS_TOKEN_ID,
+            block_hasher=block_hasher,
+        )
+
+    prefix_tokens = list(range(48))
+    cached_wait = make_request("cached_wait", prefix_tokens + [999] * 16)
+    cold_wait = make_request("cold_wait", [222] * 64)
+    scheduler.add_request(cached_wait)
+    scheduler.add_request(cold_wait)
+
+    primer_request = make_request("primer", prefix_tokens + [777] * 4)
+    scheduler.add_request(primer_request)
+
+    primer_output = scheduler.schedule()
+    assert primer_output.scheduled_new_reqs[0].req_id == "primer"
+    scheduler.update_from_output(
+        primer_output,
+        ModelRunnerOutput(
+            req_ids=[primer_request.request_id],
+            req_id_to_index={primer_request.request_id: 0},
+            sampled_token_ids=[[]],
+            logprobs=None,
+            prompt_logprobs_dict={},
+            pooler_output=[],
+        ),
+    )
+    scheduler.finish_requests(primer_request.request_id, RequestStatus.FINISHED_STOPPED)
+
+    output = scheduler.schedule()
+    assert len(output.scheduled_new_reqs) == 1
+    assert output.scheduled_new_reqs[0].req_id == "cached_wait"
+    assert cached_wait.prefill_cached_tokens == 48
+    assert cached_wait.prefill_estimated_work < cold_wait.prefill_estimated_work
 
 
 @pytest.mark.parametrize(
