@@ -32,9 +32,11 @@ from vllm.v1.core.kv_cache_utils import (
     make_block_hash_with_group_id,
 )
 from vllm.v1.kv_cache_interface import (
+    ChunkedLocalAttentionSpec,
     FullAttentionSpec,
     KVCacheConfig,
     KVCacheGroupSpec,
+    MambaSpec,
     SlidingWindowSpec,
 )
 
@@ -125,6 +127,133 @@ def make_kv_cache_config_hybrid_model(
             ),
         ],
     )
+
+
+def _prime_cache(
+    manager: KVCacheManager,
+    request: Request,
+) -> None:
+    manager.allocate_slots(
+        request,
+        request.num_tokens,
+        num_new_computed_tokens=0,
+        new_computed_blocks=manager.empty_kv_cache_blocks,
+    )
+    request.num_computed_tokens = request.num_tokens
+    manager.cache_blocks(request, request.num_computed_tokens)
+    manager.free(request)
+
+
+def _build_manager_for_spec(spec) -> KVCacheManager:
+    kv_cache_config = KVCacheConfig(
+        num_blocks=512,
+        kv_cache_tensors=[],
+        kv_cache_groups=[KVCacheGroupSpec(layer_names=["layer"], kv_cache_spec=spec)],
+    )
+    return KVCacheManager(
+        kv_cache_config,
+        max_model_len=4096,
+        enable_caching=True,
+    )
+
+
+def _assert_cached_tokens(
+    manager: KVCacheManager,
+    block_size: int,
+    prefix_tokens: list[int],
+    tail_tokens: list[int],
+    expected_hits: int,
+) -> None:
+    base_request = make_request(
+        "base-cache",
+        prefix_tokens + tail_tokens,
+        block_size,
+        sha256,
+    )
+    _prime_cache(manager, base_request)
+    query_request = make_request(
+        "query-cache",
+        prefix_tokens + [999] * len(tail_tokens),
+        block_size,
+        sha256,
+    )
+    hits = manager.get_num_computed_tokens(query_request)
+    assert hits == expected_hits
+
+
+def test_get_num_computed_tokens_full_attention():
+    block_size = 8
+    manager = _build_manager_for_spec(
+        FullAttentionSpec(block_size, 1, 1, torch.float32)
+    )
+    _assert_cached_tokens(manager, block_size, list(range(48)), [77] * 8, 48)
+
+
+def test_get_num_computed_tokens_sliding_window():
+    block_size = 8
+    spec = SlidingWindowSpec(
+        block_size=block_size,
+        num_kv_heads=1,
+        head_size=1,
+        dtype=torch.float32,
+        sliding_window=512,
+    )
+    manager = _build_manager_for_spec(spec)
+    _assert_cached_tokens(manager, block_size, list(range(32)), [55] * 8, 32)
+
+
+def test_get_num_computed_tokens_chunked_local():
+    block_size = 8
+    spec = ChunkedLocalAttentionSpec(
+        block_size=block_size,
+        num_kv_heads=1,
+        head_size=1,
+        dtype=torch.float32,
+        attention_chunk_size=512,
+    )
+    manager = _build_manager_for_spec(spec)
+    _assert_cached_tokens(manager, block_size, list(range(24)), [66] * 8, 24)
+
+
+def test_get_num_computed_tokens_mamba():
+    block_size = 8
+    spec = MambaSpec(
+        block_size=block_size,
+        shapes=((block_size, 4),),
+        dtypes=(torch.float32,),
+    )
+    manager = _build_manager_for_spec(spec)
+    _assert_cached_tokens(manager, block_size, list(range(40)), [44] * 8, 40)
+
+
+def test_get_num_computed_tokens_hybrid_full_and_sliding():
+    block_size = 8
+    kv_cache_config = KVCacheConfig(
+        num_blocks=512,
+        kv_cache_tensors=[],
+        kv_cache_groups=[
+            KVCacheGroupSpec(
+                layer_names=["full"],
+                kv_cache_spec=FullAttentionSpec(block_size, 1, 1, torch.float32),
+            ),
+            KVCacheGroupSpec(
+                layer_names=["slide"],
+                kv_cache_spec=SlidingWindowSpec(
+                    block_size=block_size,
+                    num_kv_heads=1,
+                    head_size=1,
+                    dtype=torch.float32,
+                    sliding_window=512,
+                ),
+            ),
+        ],
+    )
+    manager = KVCacheManager(
+        kv_cache_config,
+        max_model_len=4096,
+        enable_caching=True,
+    )
+    _assert_cached_tokens(manager, block_size, list(range(16)), [33] * 8, 16)
 
 
 @pytest.mark.parametrize("hash_fn", [sha256, sha256_cbor])
