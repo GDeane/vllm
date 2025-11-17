@@ -194,6 +194,13 @@ class KVCacheCoordinator(ABC):
     ) -> tuple[tuple[list[KVCacheBlock], ...], int]:
         pass
 
+    def get_num_cache_hit_tokens(
+        self,
+        block_hashes: list[BlockHash],
+        max_cache_hit_length: int,
+    ) -> int:
+        raise NotImplementedError
+
 
 class KVCacheCoordinatorNoPrefixCache(KVCacheCoordinator):
     """
@@ -233,6 +240,13 @@ class KVCacheCoordinatorNoPrefixCache(KVCacheCoordinator):
             [] for _ in range(self.num_single_type_manager)
         )
         return blocks, 0
+
+    def get_num_cache_hit_tokens(
+        self,
+        block_hashes: list[BlockHash],
+        max_cache_hit_length: int,
+    ) -> int:
+        return 0
 
 
 class UnitaryKVCacheCoordinator(KVCacheCoordinator):
@@ -283,6 +297,22 @@ class UnitaryKVCacheCoordinator(KVCacheCoordinator):
             dcp_world_size=self.dcp_world_size,
         )
         return hit_blocks, len(hit_blocks[0]) * self.block_size
+
+    def get_num_cache_hit_tokens(
+        self,
+        block_hashes: list[BlockHash],
+        max_cache_hit_length: int,
+    ) -> int:
+        manager = self.single_type_managers[0]
+        return manager.count_longest_cache_hit_tokens(
+            block_hashes=block_hashes,
+            max_length=max_cache_hit_length,
+            kv_cache_group_ids=[0],
+            block_pool=self.block_pool,
+            kv_cache_spec=self.kv_cache_spec,
+            use_eagle=self.use_eagle,
+            dcp_world_size=self.dcp_world_size,
+        )
 
 
 class HybridKVCacheCoordinator(KVCacheCoordinator):
@@ -443,6 +473,30 @@ class HybridKVCacheCoordinator(KVCacheCoordinator):
         else:
             hit_blocks = hit_blocks_other_attn + hit_blocks_full_attn
         return hit_blocks, hit_length
+
+    def get_num_cache_hit_tokens(
+        self,
+        block_hashes: list[BlockHash],
+        max_cache_hit_length: int,
+    ) -> int:
+        full_tokens = self.full_attention_manager_cls.count_longest_cache_hit_tokens(
+            block_hashes=block_hashes,
+            max_length=max_cache_hit_length,
+            kv_cache_group_ids=self.full_attention_group_ids,
+            block_pool=self.block_pool,
+            kv_cache_spec=self.full_attention_spec,
+            use_eagle=self.use_eagle,
+        )
+        if full_tokens == 0:
+            return 0
+        return self.other_attention_cls.count_longest_cache_hit_tokens(
+            block_hashes=block_hashes,
+            max_length=full_tokens,
+            kv_cache_group_ids=self.other_group_ids,
+            block_pool=self.block_pool,
+            kv_cache_spec=self.other_spec,
+            use_eagle=self.use_eagle,
+        )
 
 
 def get_kv_cache_coordinator(

@@ -216,6 +216,19 @@ class KVCacheManager:
 
         return self.create_kv_cache_blocks(computed_blocks), num_new_computed_tokens
 
+    def get_num_computed_tokens(self, request: Request) -> int:
+        """Return the number of tokens that hit the prefix cache for a request."""
+        if not self.enable_caching or (
+            request.sampling_params is not None
+            and request.sampling_params.prompt_logprobs is not None
+        ):
+            return 0
+
+        max_cache_hit_length = max(request.num_tokens - 1, 0)
+        return self.coordinator.get_num_cache_hit_tokens(
+            request.block_hashes, max_cache_hit_length
+        )
+
     def allocate_slots(
         self,
         request: Request,

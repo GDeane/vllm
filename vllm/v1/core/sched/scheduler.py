@@ -3,7 +3,7 @@
 import itertools
 import time
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Any
 
 from vllm.config import VllmConfig
@@ -29,7 +29,12 @@ from vllm.v1.core.sched.output import (
     NewRequestData,
     SchedulerOutput,
 )
-from vllm.v1.core.sched.request_queue import SchedulingPolicy, create_request_queue
+from vllm.v1.core.sched.request_queue import (
+    RequestQueue,
+    SchedulingPolicy,
+    ShortestRemainingRequestQueue,
+    create_request_queue,
+)
 from vllm.v1.core.sched.utils import check_stop, remove_all
 from vllm.v1.engine import EngineCoreEventType, EngineCoreOutput, EngineCoreOutputs
 from vllm.v1.kv_cache_interface import KVCacheConfig
@@ -120,8 +125,24 @@ class Scheduler(SchedulerInterface):
             raise ValueError(
                 f"Unknown scheduling policy: {self.scheduler_config.policy}"
             ) from e
-        # Priority queues for requests.
-        self.waiting = create_request_queue(self.policy)
+        self.prefill_mode = self.scheduler_config.prefill_mode
+        self.waiting: RequestQueue
+        self._waiting_queue_factory: Callable[[], RequestQueue]
+        if self.prefill_mode:
+            queue = ShortestRemainingRequestQueue()
+
+            def _prefill_factory() -> ShortestRemainingRequestQueue:
+                return ShortestRemainingRequestQueue()
+
+            self.waiting = queue
+            self._waiting_queue_factory = _prefill_factory
+        else:
+            self.waiting = create_request_queue(self.policy)
+
+            def _factory() -> RequestQueue:
+                return create_request_queue(self.policy)
+
+            self._waiting_queue_factory = _factory
         self.running: list[Request] = []
 
         # The request IDs that are finished in between the previous and the
@@ -355,7 +376,7 @@ class Scheduler(SchedulerInterface):
 
         # Use a temporary RequestQueue to collect requests that need to be
         # skipped and put back at the head of the waiting queue later
-        skipped_waiting_requests = create_request_queue(self.policy)
+        skipped_waiting_requests = self._waiting_queue_factory()
 
         # Next, schedule the WAITING requests.
         if not preempted_reqs:
@@ -363,7 +384,10 @@ class Scheduler(SchedulerInterface):
                 if len(self.running) == self.max_num_running_reqs:
                     break
 
-                request = self.waiting.peek_request()
+                if self.prefill_mode:
+                    request = self._peek_prefill_request()
+                else:
+                    request = self.waiting.peek_request()
 
                 # KVTransfer: skip request if still waiting for remote kvs.
                 if request.status == RequestStatus.WAITING_FOR_REMOTE_KVS:
@@ -1170,7 +1194,40 @@ class Scheduler(SchedulerInterface):
         """Returns (num_running_reqs, num_waiting_reqs)."""
         return len(self.running), len(self.waiting)
 
+    def _prepare_prefill_request(
+        self,
+        request: Request,
+        *,
+        force: bool = False,
+    ) -> bool:
+        if not self.prefill_mode:
+            return False
+        if request.prefill_estimated_work is not None and not force:
+            return False
+
+        prev_cached = request.prefill_cached_tokens
+        prev_work = request.prefill_estimated_work
+
+        num_cached = self.kv_cache_manager.get_num_computed_tokens(request)
+        request.prefill_cached_tokens = num_cached
+        request.prefill_estimated_work = max(request.num_tokens - num_cached, 0)
+        return (
+            prev_cached != request.prefill_cached_tokens
+            or prev_work != request.prefill_estimated_work
+        )
+
+    def _peek_prefill_request(self) -> Request:
+        assert self.prefill_mode
+        while True:
+            request = self.waiting.peek_request()
+            changed = self._prepare_prefill_request(request, force=True)
+            if not changed:
+                return request
+            self.waiting.pop_request()
+            self.waiting.add_request(request)
+
     def add_request(self, request: Request) -> None:
+        self._prepare_prefill_request(request)
         self.waiting.add_request(request)
         self.requests[request.request_id] = request
         if self.log_stats:

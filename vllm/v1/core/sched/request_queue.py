@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
 import heapq
+import itertools
 from abc import ABC, abstractmethod
 from collections import deque
 from collections.abc import Iterable, Iterator
@@ -208,6 +209,79 @@ class PriorityRequestQueue(RequestQueue):
 
     def __reversed__(self) -> Iterator[Request]:
         """Iterate over the queue in reverse priority order."""
+        return reversed(list(self))
+
+
+class ShortestRemainingRequestQueue(RequestQueue):
+    """
+    Min-heap queue that orders requests by estimated remaining prefill work.
+    """
+
+    def __init__(self) -> None:
+        self._heap: list[tuple[int, float, int, Request]] = []
+        self._counter = itertools.count()
+
+    @staticmethod
+    def _get_remaining_work(request: Request) -> int:
+        work = getattr(request, "prefill_estimated_work", None)
+        if work is None:
+            raise ValueError(
+                "prefill_estimated_work must be set before queueing the request"
+            )
+        return work
+
+    def _push(self, request: Request) -> None:
+        work = self._get_remaining_work(request)
+        heapq.heappush(
+            self._heap,
+            (work, request.arrival_time, next(self._counter), request),
+        )
+
+    def add_request(self, request: Request) -> None:
+        self._push(request)
+
+    def pop_request(self) -> Request:
+        if not self._heap:
+            raise IndexError("pop from empty heap")
+        _, _, _, request = heapq.heappop(self._heap)
+        return request
+
+    def peek_request(self) -> Request:
+        if not self._heap:
+            raise IndexError("peek from empty heap")
+        return self._heap[0][3]
+
+    def prepend_request(self, request: Request) -> None:
+        self._push(request)
+
+    def prepend_requests(self, requests: RequestQueue) -> None:
+        for request in requests:
+            self._push(request)
+
+    def remove_request(self, request: Request) -> None:
+        self._heap = [entry for entry in self._heap if entry[3] is not request]
+        heapq.heapify(self._heap)
+
+    def remove_requests(self, requests: Iterable[Request]) -> None:
+        requests_to_remove = set(requests)
+        self._heap = [
+            entry for entry in self._heap if entry[3] not in requests_to_remove
+        ]
+        heapq.heapify(self._heap)
+
+    def __bool__(self) -> bool:
+        return bool(self._heap)
+
+    def __len__(self) -> int:
+        return len(self._heap)
+
+    def __iter__(self) -> Iterator[Request]:
+        heap_copy = self._heap[:]
+        while heap_copy:
+            _, _, _, request = heapq.heappop(heap_copy)
+            yield request
+
+    def __reversed__(self) -> Iterator[Request]:
         return reversed(list(self))
 
 
