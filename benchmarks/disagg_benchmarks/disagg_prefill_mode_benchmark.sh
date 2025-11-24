@@ -27,20 +27,20 @@ wait_for_server() {
 }
 
 launch_disagg_prefill_baseline() {
-  model="meta-llama/Llama-3.2-3B-Instruct"
+  model="meta-llama/Meta-Llama-3.1-8B-Instruct"
   CUDA_VISIBLE_DEVICES=0 vllm serve $model \
     --port 8100 \
     --max-model-len 10000 \
     --gpu-memory-utilization 0.6 \
     --kv-transfer-config \
-    '{"kv_connector":"SharedStorageConnector","kv_role":"kv_producer","kv_rank":0,"kv_parallel_size":2,"kv_buffer_size":5e9}' &
+    '{"kv_connector":"P2pNcclConnector","kv_role":"kv_producer","kv_rank":0,"kv_parallel_size":2,"kv_buffer_size":5e9}' &
 
   CUDA_VISIBLE_DEVICES=1 vllm serve $model \
     --port 8200 \
     --max-model-len 10000 \
     --gpu-memory-utilization 0.6 \
     --kv-transfer-config \
-    '{"kv_connector":"SharedStorageConnector","kv_role":"kv_consumer","kv_rank":1,"kv_parallel_size":2,"kv_buffer_size":5e9}' &
+    '{"kv_connector":"P2pNcclConnector","kv_role":"kv_consumer","kv_rank":1,"kv_parallel_size":2,"kv_buffer_size":5e9}' &
 
   wait_for_server 8100
   wait_for_server 8200
@@ -49,20 +49,20 @@ launch_disagg_prefill_baseline() {
 }
 
 launch_disagg_prefill_prefillmode() {
-  model="meta-llama/Llama-3.2-3B-Instruct"
+  model="meta-llama/Meta-Llama-3.1-8B-Instruct"
   CUDA_VISIBLE_DEVICES=0 vllm prefill $model \
     --port 8100 \
     --max-model-len 10000 \
     --gpu-memory-utilization 0.6 \
     --kv-transfer-config \
-    '{"kv_connector":"SharedStorageConnector","kv_role":"kv_producer","kv_rank":0,"kv_parallel_size":2,"kv_buffer_size":5e9}' &
+    '{"kv_connector":"P2pNcclConnector","kv_role":"kv_producer","kv_rank":0,"kv_parallel_size":2,"kv_buffer_size":5e9}' &
 
   CUDA_VISIBLE_DEVICES=1 vllm serve $model \
     --port 8200 \
     --max-model-len 10000 \
     --gpu-memory-utilization 0.6 \
     --kv-transfer-config \
-    '{"kv_connector":"SharedStorageConnector","kv_role":"kv_consumer","kv_rank":1,"kv_parallel_size":2,"kv_buffer_size":5e9}' &
+    '{"kv_connector":"P2pNcclConnector","kv_role":"kv_consumer","kv_rank":1,"kv_parallel_size":2,"kv_buffer_size":5e9}' &
 
   wait_for_server 8100
   wait_for_server 8200
@@ -72,7 +72,7 @@ launch_disagg_prefill_prefillmode() {
 
 benchmark() {
   results_folder="./results"
-  model="meta-llama/Llama-3.2-3B-Instruct"
+  model="meta-llama/Meta-Llama-3.1-8B-Instruct"
   dataset_name="sonnet"
   dataset_path="../sonnet_4x.txt"
   num_prompts=100
