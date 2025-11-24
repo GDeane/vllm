@@ -124,17 +124,17 @@ main() {
   mkdir results
 
   default_output_len=6
-  export VLLM_HOST_IP=$(hostname -I | awk '{print $1}')
-
-  launch_disagg_prefill_baseline
-  for qps in 2 4 6 8; do
-    benchmark $qps $default_output_len serve_prefill
-  done
-  kill_gpu_processes
+  export VLLM_HOST_IP=$(hostname -i | awk '{print $1}')
 
   launch_disagg_prefill_prefillmode
   for qps in 2 4 6 8; do
     benchmark $qps $default_output_len prefill_mode
+  done
+  kill_gpu_processes
+
+  launch_disagg_prefill_baseline
+  for qps in 2 4 6 8; do
+    benchmark $qps $default_output_len serve_prefill
   done
   kill_gpu_processes
 }
