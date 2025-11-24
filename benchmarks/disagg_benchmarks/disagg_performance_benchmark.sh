@@ -58,7 +58,7 @@ launch_chunked_prefill() {
 launch_disagg_prefill() {
   model="meta-llama/Meta-Llama-3.1-8B-Instruct"
   # disagg prefill
-  CUDA_VISIBLE_DEVICES=0 vllm serve $model \
+  CUDA_VISIBLE_DEVICES=0 vllm prefill $model \
     --port 8100 \
     --max-model-len 10000 \
     --gpu-memory-utilization 0.6 \
