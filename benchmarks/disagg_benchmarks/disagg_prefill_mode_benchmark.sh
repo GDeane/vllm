@@ -31,7 +31,7 @@ launch_disagg_prefill_baseline() {
   CUDA_VISIBLE_DEVICES=0 vllm serve $model \
     --port 8100 \
     --max-model-len 10000 \
-    --enforce-eager
+    --enforce-eager \
     --gpu-memory-utilization 0.6 \
     --kv-transfer-config \
     '{"kv_connector":"SharedStorageConnector","kv_role":"kv_producer","kv_rank":0,"kv_parallel_size":2,"kv_buffer_size":5e9}' &
@@ -54,7 +54,7 @@ launch_disagg_prefill_prefillmode() {
   CUDA_VISIBLE_DEVICES=0 vllm prefill $model \
     --port 8100 \
     --max-model-len 10000 \
-    --enforce-eager
+    --enforce-eager \
     --gpu-memory-utilization 0.6 \
     --kv-transfer-config \
     '{"kv_connector":"SharedStorageConnector","kv_role":"kv_producer","kv_rank":0,"kv_parallel_size":2,"kv_buffer_size":5e9}' &
