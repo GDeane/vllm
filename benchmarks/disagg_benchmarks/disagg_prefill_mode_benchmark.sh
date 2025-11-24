@@ -28,10 +28,11 @@ wait_for_server() {
 
 launch_disagg_prefill_baseline() {
   model="Qwen/Qwen2.5-1.5B-Instruct"
-  VLLM_COMPILE_CUDAGRAPH_MODE=none CUDA_VISIBLE_DEVICES=0 vllm serve $model \
+  CUDA_VISIBLE_DEVICES=0 vllm serve $model \
     --port 8100 \
     --max-model-len 10000 \
     --gpu-memory-utilization 0.6 \
+    --compilation-config '{"cudagraph_mode":"NONE"}' \
     --kv-transfer-config \
     '{"kv_connector":"SharedStorageConnector","kv_role":"kv_producer","kv_rank":0,"kv_parallel_size":2,"kv_buffer_size":5e9}' &
 
@@ -39,6 +40,7 @@ launch_disagg_prefill_baseline() {
     --port 8200 \
     --max-model-len 10000 \
     --gpu-memory-utilization 0.6 \
+    --compilation-config '{"cudagraph_mode":"NONE"}' \
     --kv-transfer-config \
     '{"kv_connector":"SharedStorageConnector","kv_role":"kv_consumer","kv_rank":1,"kv_parallel_size":2,"kv_buffer_size":5e9}' &
 
@@ -50,10 +52,11 @@ launch_disagg_prefill_baseline() {
 
 launch_disagg_prefill_prefillmode() {
   model="Qwen/Qwen2.5-1.5B-Instruct"
-  VLLM_COMPILE_CUDAGRAPH_MODE=none CUDA_VISIBLE_DEVICES=0 vllm prefill $model \
+  CUDA_VISIBLE_DEVICES=0 vllm prefill $model \
     --port 8100 \
     --max-model-len 10000 \
     --gpu-memory-utilization 0.6 \
+    --compilation-config '{"cudagraph_mode":"NONE"}' \
     --kv-transfer-config \
     '{"kv_connector":"SharedStorageConnector","kv_role":"kv_producer","kv_rank":0,"kv_parallel_size":2,"kv_buffer_size":5e9}' &
 
@@ -61,6 +64,7 @@ launch_disagg_prefill_prefillmode() {
     --port 8200 \
     --max-model-len 10000 \
     --gpu-memory-utilization 0.6 \
+    --compilation-config '{"cudagraph_mode":"NONE"}' \
     --kv-transfer-config \
     '{"kv_connector":"SharedStorageConnector","kv_role":"kv_consumer","kv_rank":1,"kv_parallel_size":2,"kv_buffer_size":5e9}' &
 
