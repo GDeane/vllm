@@ -28,6 +28,7 @@ wait_for_server() {
 
 launch_disagg_prefill_baseline() {
   model="Qwen/Qwen2.5-1.5B-Instruct"
+  VLLM_COMPILE_CUDAGRAPH_MODE=none
   CUDA_VISIBLE_DEVICES=0 vllm serve $model \
     --port 8100 \
     --max-model-len 10000 \
@@ -50,6 +51,7 @@ launch_disagg_prefill_baseline() {
 
 launch_disagg_prefill_prefillmode() {
   model="Qwen/Qwen2.5-1.5B-Instruct"
+  VLLM_COMPILE_CUDAGRAPH_MODE=none
   CUDA_VISIBLE_DEVICES=0 vllm prefill $model \
     --port 8100 \
     --max-model-len 10000 \
