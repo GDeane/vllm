@@ -27,17 +27,16 @@ wait_for_server() {
 }
 
 launch_disagg_prefill_baseline() {
-  model="Qwen/Qwen2.5-1.5B-Instruct"
-  CUDA_VISIBLE_DEVICES=0 vllm serve $model \
+  CUDA_VISIBLE_DEVICES=0 vllm serve $MODEL_NAME \
     --port 8100 \
-    --max-model-len 4096 \
+    --max-model-len $MAX_MODEL_LEN \
     --gpu-memory-utilization 0.6 \
     --kv-transfer-config \
     '{"kv_connector":"SharedStorageConnector","kv_role":"kv_producer","kv_rank":0,"kv_parallel_size":2,"kv_buffer_size":5e9}' &
 
-  CUDA_VISIBLE_DEVICES=1 vllm serve $model \
+  CUDA_VISIBLE_DEVICES=1 vllm serve $MODEL_NAME \
     --port 8200 \
-    --max-model-len 4096 \
+    --max-model-len $MAX_MODEL_LEN \
     --gpu-memory-utilization 0.6 \
     --kv-transfer-config \
     '{"kv_connector":"SharedStorageConnector","kv_role":"kv_consumer","kv_rank":1,"kv_parallel_size":2,"kv_buffer_size":5e9}' &
@@ -49,17 +48,16 @@ launch_disagg_prefill_baseline() {
 }
 
 launch_disagg_prefill_prefillmode() {
-  model="Qwen/Qwen2.5-1.5B-Instruct"
-  CUDA_VISIBLE_DEVICES=0 vllm prefill $model \
+  CUDA_VISIBLE_DEVICES=0 vllm prefill $MODEL_NAME \
     --port 8100 \
-    --max-model-len 4096 \
+    --max-model-len $MAX_MODEL_LEN \
     --gpu-memory-utilization 0.6 \
     --kv-transfer-config \
     '{"kv_connector":"SharedStorageConnector","kv_role":"kv_producer","kv_rank":0,"kv_parallel_size":2,"kv_buffer_size":5e9}' &
 
-  CUDA_VISIBLE_DEVICES=1 vllm serve $model \
+  CUDA_VISIBLE_DEVICES=1 vllm serve $MODEL_NAME \
     --port 8200 \
-    --max-model-len 4096 \
+    --max-model-len $MAX_MODEL_LEN \
     --gpu-memory-utilization 0.6 \
     --kv-transfer-config \
     '{"kv_connector":"SharedStorageConnector","kv_role":"kv_consumer","kv_rank":1,"kv_parallel_size":2,"kv_buffer_size":5e9}' &
@@ -72,19 +70,18 @@ launch_disagg_prefill_prefillmode() {
 
 benchmark() {
   results_folder="./results"
-  model="Qwen/Qwen2.5-1.5B-Instruct"
   dataset_name="sonnet"
-  dataset_path="../sonnet_4x.txt"
+  dataset_path="../sonnet_8x.txt"
   num_prompts=100
   qps=$1
   prefix_len=50
-  input_len=1024
+  input_len=$MAX_MODEL_LEN
   output_len=$2
   tag=$3
 
   vllm bench serve \
     --backend vllm \
-    --model $model \
+    --model $MODEL_NAME \
     --dataset-name $dataset_name \
     --dataset-path $dataset_path \
     --sonnet-input-len $input_len \
@@ -101,6 +98,8 @@ benchmark() {
 }
 
 main() {
+  MODEL_NAME=${MODEL_NAME:-"Qwen/Qwen2.5-1.5B-Instruct"}
+  MAX_MODEL_LEN=${MAX_MODEL_LEN:-4096}
 
   (which wget && which curl) || (apt-get update && apt-get install -y wget curl)
   (which jq) || (apt-get -y install jq)
@@ -112,11 +111,10 @@ main() {
   cd "$(dirname "$0")"
 
   cd ..
-  # create sonnet-4x.txt so that we can sample 2048 tokens for input
-  echo "" > sonnet_4x.txt
-  for _ in {1..4}
-  do
-    cat sonnet.txt >> sonnet_4x.txt
+  # Create a long sonnet file so that we can sample long contexts.
+  echo "" > sonnet_8x.txt
+  for _ in {1..8}; do
+    cat sonnet.txt >> sonnet_8x.txt
   done
   cd disagg_benchmarks
 
@@ -126,15 +124,15 @@ main() {
   default_output_len=6
   export VLLM_HOST_IP=$(hostname -i | awk '{print $1}')
 
-  launch_disagg_prefill_baseline
-  for qps in 2 4 6 8; do
-    benchmark $qps $default_output_len serve_prefill
-  done
-  kill_gpu_processes
-
   launch_disagg_prefill_prefillmode
   for qps in 2 4 6 8; do
     benchmark $qps $default_output_len prefill_mode
+  done
+  kill_gpu_processes
+
+  launch_disagg_prefill_baseline
+  for qps in 2 4 6 8; do
+    benchmark $qps $default_output_len serve_prefill
   done
   kill_gpu_processes
 }
