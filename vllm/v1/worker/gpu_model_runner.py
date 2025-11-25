@@ -3892,14 +3892,10 @@ class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
                     # Cache the dummy encoder outputs.
                     self.encoder_cache["tmp"] = dict(enumerate(dummy_encoder_outputs))
 
-        # Run warmups at both long and short token counts so torch.compile
-        # captures all relevant code paths (e.g. RoPE slices before and after
-        # internal thresholds such as 2K tokens).
-        hidden_states = last_hidden_states = None
-        for num_tokens in self._get_warmup_token_counts():
-            hidden_states, last_hidden_states = self._dummy_run(
-                num_tokens, is_profile=True
-            )
+        # Add `is_profile` here to pre-allocate communication buffers
+        hidden_states, last_hidden_states = self._dummy_run(
+            self.max_num_tokens, is_profile=True
+        )
         if get_pp_group().is_last_rank:
             if self.is_pooling_model:
                 output = self._dummy_pooler_run(hidden_states)
@@ -3911,20 +3907,6 @@ class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
         del hidden_states, output
         self.encoder_cache.clear()
         gc.collect()
-
-    def _get_warmup_token_counts(self) -> list[int]:
-        """Return the list of token counts used for initial warmup runs."""
-        max_tokens = self.max_num_tokens
-        counts: list[int] = []
-
-        # Warm up a shorter shape to ensure kernels that bake in offsets
-        # (e.g. rotary embeddings slicing `seq_len - 2048`) see valid inputs.
-        short_target = min(max_tokens, 2048)
-        if short_target < max_tokens:
-            counts.append(short_target)
-
-        counts.append(max_tokens)
-        return counts
 
     def capture_model(self) -> int:
         if self.compilation_config.cudagraph_mode == CUDAGraphMode.NONE:
