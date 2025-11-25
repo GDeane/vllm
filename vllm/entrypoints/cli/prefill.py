@@ -28,13 +28,12 @@ class PrefillSubcommand(CLISubcommand):
 
     @staticmethod
     def cmd(args: argparse.Namespace) -> None:
-        # Mark the run as prefill-only and disable chunked prefill.
+        # Mark the run as prefill-only.
         args.prefill_mode = True
-        args.enable_chunked_prefill = False
 
         logger.info(
-            "Starting vLLM in prefill mode: chunked prefill is disabled and "
-            "the server will require `max_tokens=1` for every request."
+            "Starting vLLM in prefill mode: the server will require "
+            "`max_tokens=1` for every request."
         )
 
         ServeSubcommand.cmd(args)

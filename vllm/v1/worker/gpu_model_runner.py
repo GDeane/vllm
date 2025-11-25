@@ -72,7 +72,6 @@ from vllm.multimodal.inputs import (
 )
 from vllm.multimodal.utils import group_mm_kwargs_by_modality
 from vllm.pooling_params import PoolingParams
-from vllm.prefill.ffn_chunk import enable_prefill_ffn_chunking
 from vllm.sampling_params import SamplingType
 from vllm.sequence import IntermediateTensors
 from vllm.tasks import GenerationTask, PoolingTask, SupportedTask
@@ -3071,9 +3070,6 @@ class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
                         rank_mapping,
                     )
                     eplb_models += 1
-
-            if getattr(self.vllm_config, "prefill_mode", False):
-                enable_prefill_ffn_chunking(self.get_model())
 
             if self.use_aux_hidden_state_outputs:
                 if not supports_eagle3(self.get_model()):

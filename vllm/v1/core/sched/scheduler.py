@@ -1210,11 +1210,27 @@ class Scheduler(SchedulerInterface):
 
         num_cached = self.kv_cache_manager.get_num_computed_tokens(request)
         request.prefill_cached_tokens = num_cached
-        request.prefill_estimated_work = max(request.num_tokens - num_cached, 0)
+        remaining = max(request.num_tokens - num_cached, 0)
+        if remaining == 0:
+            estimated_work = 0
+        elif self.scheduler_config.chunked_prefill_enabled:
+            estimated_work = self._get_prefill_chunk_work(remaining)
+        else:
+            estimated_work = remaining
+        request.prefill_estimated_work = estimated_work
         return (
             prev_cached != request.prefill_cached_tokens
             or prev_work != request.prefill_estimated_work
         )
+
+    def _get_prefill_chunk_work(self, remaining_tokens: int) -> int:
+        """Return chunk-level work estimate for SRJF scheduling."""
+        chunk_limit = self.max_num_scheduled_tokens
+        threshold = self.scheduler_config.long_prefill_token_threshold
+        if 0 < threshold < chunk_limit:
+            chunk_limit = threshold
+        chunk_limit = max(chunk_limit, 1)
+        return min(remaining_tokens, chunk_limit)
 
     def _peek_prefill_request(self) -> Request:
         assert self.prefill_mode

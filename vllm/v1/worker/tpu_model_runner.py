@@ -51,7 +51,6 @@ from vllm.multimodal.inputs import (
     PlaceholderRange,
 )
 from vllm.multimodal.utils import group_mm_kwargs_by_modality
-from vllm.prefill.ffn_chunk import enable_prefill_ffn_chunking
 from vllm.sequence import IntermediateTensors
 from vllm.tasks import GenerationTask, PoolingTask, SupportedTask
 from vllm.utils.math_utils import cdiv, prev_power_of_2
@@ -1367,9 +1366,6 @@ class TPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
         if self.lora_config is not None:
             model = self.load_lora_model(model, self.vllm_config, self.device)
             replace_set_lora(model)
-
-        if getattr(self.vllm_config, "prefill_mode", False):
-            enable_prefill_ffn_chunking(model)
 
         # Sync all pending XLA execution during model initialization and weight
         # loading.

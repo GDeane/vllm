@@ -219,13 +219,6 @@ class SchedulerConfig:
                 " prefix caching; disabling both."
             )
 
-        if self.prefill_mode:
-            self.chunked_prefill_enabled = False
-            self.enable_chunked_prefill = False
-            logger.info(
-                "Scheduler running in prefill-only mode; chunked prefill is disabled."
-            )
-
         if self.max_num_batched_tokens is None:
             if self.enable_chunked_prefill:
                 self.max_num_batched_tokens = DEFAULT_MAX_NUM_BATCHED_TOKENS
