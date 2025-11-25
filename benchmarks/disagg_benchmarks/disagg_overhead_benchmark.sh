@@ -55,7 +55,7 @@ benchmark() {
   output_len=$2
 
 
-  CUDA_VISIBLE_DEVICES=0 vllm serve $model \
+  CUDA_VISIBLE_DEVICES=0 vllm prefill $model \
     --port 8100 \
     --max-model-len 10000 \
     --gpu-memory-utilization 0.6 \
@@ -73,14 +73,15 @@ benchmark() {
   wait_for_server 8100
   wait_for_server 8200
 
-  # let the prefill instance finish prefill
+  # let the prefill instance finish prefill; keep decode length at 1 token
+  prefill_output_len=1
   vllm bench serve \
     --backend vllm \
     --model $model \
     --dataset-name $dataset_name \
     --dataset-path $dataset_path \
     --sonnet-input-len $input_len \
-    --sonnet-output-len "$output_len" \
+    --sonnet-output-len "$prefill_output_len" \
     --sonnet-prefix-len $prefix_len \
     --num-prompts $num_prompts \
     --port 8100 \
