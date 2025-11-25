@@ -33,14 +33,14 @@ launch_disagg_prefill_baseline() {
     --max-model-len 4096 \
     --gpu-memory-utilization 0.6 \
     --kv-transfer-config \
-    '{"kv_connector":"P2pNcclConnector","kv_role":"kv_producer","kv_rank":0,"kv_parallel_size":2,"kv_buffer_size":5e9}' &
+    '{"kv_connector":"SharedStorageConnector","kv_role":"kv_producer","kv_rank":0,"kv_parallel_size":2,"kv_buffer_size":5e9}' &
 
   CUDA_VISIBLE_DEVICES=1 vllm serve $model \
     --port 8200 \
     --max-model-len 4096 \
     --gpu-memory-utilization 0.6 \
     --kv-transfer-config \
-    '{"kv_connector":"P2pNcclConnector","kv_role":"kv_consumer","kv_rank":1,"kv_parallel_size":2,"kv_buffer_size":5e9}' &
+    '{"kv_connector":"SharedStorageConnector","kv_role":"kv_consumer","kv_rank":1,"kv_parallel_size":2,"kv_buffer_size":5e9}' &
 
   wait_for_server 8100
   wait_for_server 8200
@@ -55,14 +55,14 @@ launch_disagg_prefill_prefillmode() {
     --max-model-len 4096 \
     --gpu-memory-utilization 0.6 \
     --kv-transfer-config \
-    '{"kv_connector":"P2pNcclConnector","kv_role":"kv_producer","kv_rank":0,"kv_parallel_size":2,"kv_buffer_size":5e9}' &
+    '{"kv_connector":"SharedStorageConnector","kv_role":"kv_producer","kv_rank":0,"kv_parallel_size":2,"kv_buffer_size":5e9}' &
 
   CUDA_VISIBLE_DEVICES=1 vllm serve $model \
     --port 8200 \
     --max-model-len 4096 \
     --gpu-memory-utilization 0.6 \
     --kv-transfer-config \
-    '{"kv_connector":"P2pNcclConnector","kv_role":"kv_consumer","kv_rank":1,"kv_parallel_size":2,"kv_buffer_size":5e9}' &
+    '{"kv_connector":"SharedStorageConnector","kv_role":"kv_consumer","kv_rank":1,"kv_parallel_size":2,"kv_buffer_size":5e9}' &
 
   wait_for_server 8100
   wait_for_server 8200
